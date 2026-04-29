@@ -19,6 +19,15 @@ class ExecutionEngine:
     def list_active_trades(self) -> List[ActiveTrade]:
         return list(self.active_trades.values())
 
+    def summarize_active_trades(self) -> str:
+        trades = self.list_active_trades()
+        if not trades:
+            return "None"
+        return ", ".join(
+            f"{trade.symbol} {trade.direction.value} qty={trade.quantity:.6f} entry={trade.entry_price:.6f}"
+            for trade in trades
+        )
+
     async def sync_exchange_positions(self) -> None:
         positions = await self.data_fetcher.fetch_positions()
         current: Dict[str, ActiveTrade] = {}

@@ -108,7 +108,9 @@ async def run_bot() -> None:
         await execution.sync_exchange_positions()
         balance = await fetcher.fetch_account_balance()
         account = risk.parse_balance(balance)
-        await notifier.send_startup(account.free_usdt)
+        active_trade_summary = execution.summarize_active_trades()
+        LOGGER.info("Active trades at startup: %s", active_trade_summary)
+        await notifier.send_startup(account.free_usdt, active_trade_summary)
 
         while True:
             for session_name, event in sessions.evaluate().items():
@@ -122,7 +124,11 @@ async def run_bot() -> None:
             status_slot = now.hour * 2 + (1 if now.minute >= 30 else 0)
             if last_status_slot != status_slot and now.minute in {0, 30}:
                 last_status_slot = status_slot
-                await notifier.send_scan_status(len(execution.list_active_trades()), account.free_usdt)
+                await notifier.send_scan_status(
+                    len(execution.list_active_trades()),
+                    account.free_usdt,
+                    execution.summarize_active_trades(),
+                )
 
             signals = await asyncio.gather(
                 *(process_symbol(symbol, fetcher, strategy) for symbol in config.symbols),
@@ -146,7 +152,12 @@ async def run_bot() -> None:
 
                 can_open, reason = risk.can_open_trade(result, account, execution.list_active_trades())
                 if not can_open:
-                    LOGGER.info("Signal on %s rejected by risk manager: %s", result.symbol, reason)
+                    LOGGER.info(
+                        "Signal on %s rejected by risk manager: %s | active trades: %s",
+                        result.symbol,
+                        reason,
+                        execution.summarize_active_trades(),
+                    )
                     continue
 
                 if not session_policy.active:

@@ -22,18 +22,20 @@ class TelegramNotifier:
         except Exception as exc:  # pragma: no cover
             LOGGER.error("Telegram notification failed: %s", exc)
 
-    async def send_startup(self, capital: float) -> None:
+    async def send_startup(self, capital: float, active_trade_summary: str) -> None:
         await self.send(
             "Bot started successfully.\n"
             "Binance Futures real/demo login success.\n"
-            f"Available capital: {capital:.2f} USDT"
+            f"Available capital: {capital:.2f} USDT\n"
+            f"Active demo trades at startup: {active_trade_summary}"
         )
 
-    async def send_scan_status(self, active_trades: int, capital: float) -> None:
+    async def send_scan_status(self, active_trades: int, capital: float, active_trade_summary: str) -> None:
         await self.send(
             "30-minute scan status.\n"
             f"Active trades: {active_trades}\n"
-            f"Available capital: {capital:.2f} USDT"
+            f"Available capital: {capital:.2f} USDT\n"
+            f"Tracked trades: {active_trade_summary}"
         )
 
     async def send_session_event(self, session_name: str, event: str) -> None:
