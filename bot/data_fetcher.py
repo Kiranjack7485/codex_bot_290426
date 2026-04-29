@@ -45,7 +45,12 @@ class BinanceFuturesDataFetcher:
             }
         )
         if testnet:
-            exchange.set_sandbox_mode(True)
+            if hasattr(exchange, "enable_demo_trading"):
+                exchange.enable_demo_trading(True)
+            else:
+                demo_urls = exchange.urls.get("demo")
+                if demo_urls:
+                    exchange.urls["api"] = demo_urls
         return exchange
 
     async def initialize(self) -> None:
@@ -56,7 +61,7 @@ class BinanceFuturesDataFetcher:
             self.testnet_exchange.load_markets(reload=True),
         )
         self.markets_loaded = True
-        LOGGER.info("Loaded markets for real and testnet Binance Futures clients.")
+        LOGGER.info("Loaded markets for real and demo Binance Futures clients.")
 
     async def close(self) -> None:
         await asyncio.gather(

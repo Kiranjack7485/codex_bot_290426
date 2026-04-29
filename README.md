@@ -2,10 +2,10 @@
 
 This project is a modular Python crypto scalping bot for Binance Futures that:
 
-- Connects to Binance Futures real and testnet simultaneously
+- Connects to Binance Futures real and demo environments simultaneously
 - Scans `BTCUSDT`, `ETHUSDT`, `BNBUSDT`, `SOLUSDT`, `XRPUSDT`
 - Evaluates strict 5m primary and 15m confirmation logic
-- Executes trades only on Binance Futures testnet
+- Executes trades only on Binance Futures demo trading
 - Sends Telegram alerts for strong signals, demo trades, TP, SL, startup, sessions, and 30-minute scan status
 
 ## Strategy Rules Implemented
@@ -79,15 +79,16 @@ pip install -r requirements.txt
 If you see Binance `-2015 Invalid API-key, IP, or permissions for action`, verify all of the following:
 
 - The real API key is a Binance Futures key with permission for futures account queries
-- The testnet API key is created on Binance Futures testnet, not on production Binance
+- The demo API key is created for Binance Futures demo trading, not on production Binance
 - `BINANCE_API_KEY` and `BINANCE_SECRET` belong to the same account
-- `BINANCE_TESTNET_API_KEY` and `BINANCE_TESTNET_SECRET` belong to the same testnet account
+- `BINANCE_TESTNET_API_KEY` and `BINANCE_TESTNET_SECRET` belong to the same demo account
 - Any IP restriction on the keys includes the machine running the bot
+- Legacy CCXT sandbox mode is no longer supported for Binance USD-M futures; this bot uses demo trading mode instead
 
 ## How It Runs
 
 - Real Binance Futures connection is used for market data scanning
-- Binance Futures testnet connection is used for balance, leverage, and order execution
+- Binance Futures demo-trading connection is used for balance, leverage, and order execution
 - Telegram notifications are limited to the required events only
 - The scanner runs asynchronously across all five symbols
 - Entry order logic:
@@ -120,5 +121,5 @@ worker: python main.py
 ## Notes
 
 - Strategy tuning values are exposed through environment variables so the logic stays explicit.
-- Before live use, validate Binance testnet order type support for your account and region.
+- Before live use, validate Binance demo-trading order type support for your account and region.
 - This code is Phase 1 infrastructure and should be forward-tested extensively before any production capital is considered.
