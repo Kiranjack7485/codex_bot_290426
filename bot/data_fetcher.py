@@ -79,8 +79,12 @@ class BinanceFuturesDataFetcher:
             reraise=True,
         ):
             with attempt:
-                await self.real_exchange.fetch_balance()
-                results["real"] = "ok"
+                if self.config.require_real_balance_auth:
+                    await self.real_exchange.fetch_balance()
+                    results["real"] = "private-auth-ok"
+                else:
+                    await self.real_exchange.fetch_time()
+                    results["real"] = "public-data-ok"
                 break
 
         async for attempt in AsyncRetrying(

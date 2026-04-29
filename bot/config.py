@@ -12,6 +12,13 @@ def _get_env_list(name: str, default: str) -> List[str]:
     return [item.strip().upper() for item in value.split(",") if item.strip()]
 
 
+def _get_env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(slots=True)
 class StrategyConfig:
     primary_timeframe: str = "5m"
@@ -92,6 +99,7 @@ class AppConfig:
     telegram_chat_id: str
     symbols: List[str]
     scan_interval_seconds: int
+    require_real_balance_auth: bool
     strategy: StrategyConfig
     risk: RiskConfig
 
@@ -127,6 +135,7 @@ class AppConfig:
             telegram_chat_id=required["TELEGRAM_CHAT_ID"] or "",
             symbols=_get_env_list("BOT_SYMBOLS", "BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT"),
             scan_interval_seconds=int(os.getenv("BOT_SCAN_INTERVAL_SECONDS", "60")),
+            require_real_balance_auth=_get_env_bool("BOT_REQUIRE_REAL_BALANCE_AUTH", False),
             strategy=strategy,
             risk=risk,
         )

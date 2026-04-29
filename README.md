@@ -68,6 +68,7 @@ pip install -r requirements.txt
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
 - Optional session controls:
+  - `BOT_REQUIRE_REAL_BALANCE_AUTH`
   - `BOT_INDIAN_SESSION_SCAN_INTERVAL_SECONDS`
   - `BOT_US_LONDON_SCAN_INTERVAL_SECONDS`
   - `BOT_OFF_SESSION_SCAN_INTERVAL_SECONDS`
@@ -95,6 +96,8 @@ If you see Binance `-2015 Invalid API-key, IP, or permissions for action`, verif
 - `BINANCE_TESTNET_API_KEY` and `BINANCE_TESTNET_SECRET` belong to the same demo account
 - Any IP restriction on the keys includes the machine running the bot
 - Legacy CCXT sandbox mode is no longer supported for Binance USD-M futures; this bot uses demo trading mode instead
+
+For cloud deployment platforms like Railway, keep `BOT_REQUIRE_REAL_BALANCE_AUTH=false` unless you specifically need authenticated mainnet account queries from the server. The bot only needs public mainnet market data for scanning, but demo credentials are still required for execution.
 
 ## How It Runs
 

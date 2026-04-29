@@ -104,13 +104,17 @@ async def run_bot() -> None:
 
     try:
         await fetcher.initialize()
-        await fetcher.validate_connections()
+        connection_results = await fetcher.validate_connections()
         await execution.sync_exchange_positions()
         balance = await fetcher.fetch_account_balance()
         account = risk.parse_balance(balance)
         active_trade_summary = execution.summarize_active_trades()
         LOGGER.info("Active trades at startup: %s", active_trade_summary)
-        await notifier.send_startup(account.free_usdt, active_trade_summary)
+        await notifier.send_startup(
+            account.free_usdt,
+            active_trade_summary,
+            connection_results.get("real", "unknown"),
+        )
 
         while True:
             for session_name, event in sessions.evaluate().items():
