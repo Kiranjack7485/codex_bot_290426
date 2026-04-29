@@ -32,6 +32,12 @@ class StrategyConfig:
             "US/London Overlap": ("18:30", "22:30"),
         }
     )
+    indian_session_scan_interval_seconds: int = 30
+    us_london_scan_interval_seconds: int = 15
+    off_session_scan_interval_seconds: int = 60
+    indian_session_min_score: int = 8
+    us_london_min_score: int = 9
+    super_strong_signal_score: int = 9
 
     @classmethod
     def from_env(cls) -> "StrategyConfig":
@@ -44,6 +50,12 @@ class StrategyConfig:
             fvg_fill_tolerance_bps=float(os.getenv("BOT_FVG_FILL_TOLERANCE_BPS", "15")),
             break_retest_tolerance_bps=float(os.getenv("BOT_BREAK_RETEST_TOLERANCE_BPS", "10")),
             pullback_ema_tolerance_bps=float(os.getenv("BOT_PULLBACK_EMA_TOLERANCE_BPS", "12")),
+            indian_session_scan_interval_seconds=int(os.getenv("BOT_INDIAN_SESSION_SCAN_INTERVAL_SECONDS", "30")),
+            us_london_scan_interval_seconds=int(os.getenv("BOT_US_LONDON_SCAN_INTERVAL_SECONDS", "15")),
+            off_session_scan_interval_seconds=int(os.getenv("BOT_OFF_SESSION_SCAN_INTERVAL_SECONDS", "60")),
+            indian_session_min_score=int(os.getenv("BOT_INDIAN_SESSION_MIN_SCORE", "8")),
+            us_london_min_score=int(os.getenv("BOT_US_LONDON_MIN_SCORE", "9")),
+            super_strong_signal_score=int(os.getenv("BOT_SUPER_STRONG_SIGNAL_SCORE", "9")),
         )
 
 

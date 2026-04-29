@@ -7,6 +7,10 @@ This project is a modular Python crypto scalping bot for Binance Futures that:
 - Evaluates strict 5m primary and 15m confirmation logic
 - Executes trades only on Binance Futures demo trading
 - Sends Telegram alerts for strong signals, demo trades, TP, SL, startup, sessions, and 30-minute scan status
+- Adapts scanning intensity by session:
+  - Indian Session: half-hyper active
+  - US/London Overlap: hyper active
+  - Off-session: conservative scan pace with no trade execution
 
 ## Strategy Rules Implemented
 
@@ -63,6 +67,13 @@ pip install -r requirements.txt
 - `BINANCE_TESTNET_SECRET`
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
+- Optional session controls:
+  - `BOT_INDIAN_SESSION_SCAN_INTERVAL_SECONDS`
+  - `BOT_US_LONDON_SCAN_INTERVAL_SECONDS`
+  - `BOT_OFF_SESSION_SCAN_INTERVAL_SECONDS`
+  - `BOT_INDIAN_SESSION_MIN_SCORE`
+  - `BOT_US_LONDON_MIN_SCORE`
+  - `BOT_SUPER_STRONG_SIGNAL_SCORE`
 
 4. Start the bot.
 
@@ -91,6 +102,11 @@ If you see Binance `-2015 Invalid API-key, IP, or permissions for action`, verif
 - Binance Futures demo-trading connection is used for balance, leverage, and order execution
 - Telegram notifications are limited to the required events only
 - The scanner runs asynchronously across all five symbols
+- Session behavior:
+  - Indian Session defaults to 30-second scans and requires score `>= 8` for execution
+  - US/London Overlap defaults to 15-second scans and requires score `>= 9` for execution
+  - Telegram signal alerts are sent only for super-strong signals, default score `>= 9`
+  - Off-session scans continue at a slower pace, but entries are skipped
 - Entry order logic:
   - Liquidity Sweep Reversal: market order
   - Break and Retest: limit order

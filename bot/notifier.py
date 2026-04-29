@@ -25,7 +25,7 @@ class TelegramNotifier:
     async def send_startup(self, capital: float) -> None:
         await self.send(
             "Bot started successfully.\n"
-            "Binance Futures real/testnet login success.\n"
+            "Binance Futures real/demo login success.\n"
             f"Available capital: {capital:.2f} USDT"
         )
 

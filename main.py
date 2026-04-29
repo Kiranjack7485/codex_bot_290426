@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, Optional
 from zoneinfo import ZoneInfo
@@ -11,6 +12,7 @@ from ccxt.base.errors import AuthenticationError
 from bot.config import AppConfig
 from bot.data_fetcher import BinanceFuturesDataFetcher
 from bot.execution_engine import ExecutionEngine
+from bot.models import TradeSignal
 from bot.notifier import TelegramNotifier
 from bot.risk_manager import RiskManager
 from bot.strategy_engine import StrategyEngine
@@ -21,6 +23,15 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 LOGGER = logging.getLogger("bot.main")
+
+
+@dataclass(frozen=True, slots=True)
+class SessionPolicy:
+    session_name: str
+    active: bool
+    scan_interval_seconds: int
+    min_execution_score: int
+    min_notification_score: int
 
 
 class SessionManager:
@@ -44,12 +55,37 @@ class SessionManager:
     def is_preferred_window(self) -> bool:
         return any(self.states.values())
 
+    def current_policy(self) -> SessionPolicy:
+        if self.states.get("US/London Overlap", False):
+            return SessionPolicy(
+                session_name="US/London Overlap",
+                active=True,
+                scan_interval_seconds=self.config.strategy.us_london_scan_interval_seconds,
+                min_execution_score=self.config.strategy.us_london_min_score,
+                min_notification_score=self.config.strategy.super_strong_signal_score,
+            )
+        if self.states.get("Indian Session", False):
+            return SessionPolicy(
+                session_name="Indian Session",
+                active=True,
+                scan_interval_seconds=self.config.strategy.indian_session_scan_interval_seconds,
+                min_execution_score=self.config.strategy.indian_session_min_score,
+                min_notification_score=self.config.strategy.super_strong_signal_score,
+            )
+        return SessionPolicy(
+            session_name="Off Session",
+            active=False,
+            scan_interval_seconds=self.config.strategy.off_session_scan_interval_seconds,
+            min_execution_score=99,
+            min_notification_score=99,
+        )
+
 
 async def process_symbol(
     symbol: str,
     fetcher: BinanceFuturesDataFetcher,
     strategy: StrategyEngine,
-) -> Optional:
+) -> Optional[TradeSignal]:
     primary, confirmation = await fetcher.fetch_symbol_context(symbol)
     return strategy.evaluate_symbol(symbol, primary, confirmation)
 
@@ -77,6 +113,7 @@ async def run_bot() -> None:
         while True:
             for session_name, event in sessions.evaluate().items():
                 await notifier.send_session_event(session_name, event)
+            session_policy = sessions.current_policy()
 
             balance = await fetcher.fetch_account_balance()
             account = risk.parse_balance(balance)
@@ -104,7 +141,7 @@ async def run_bot() -> None:
                     continue
                 seen_signals[signal_key] = result.timestamp
 
-                if result.score >= 7:
+                if session_policy.active and result.score >= session_policy.min_notification_score:
                     await notifier.send_strong_signal(result)
 
                 can_open, reason = risk.can_open_trade(result, account, execution.list_active_trades())
@@ -112,10 +149,17 @@ async def run_bot() -> None:
                     LOGGER.info("Signal on %s rejected by risk manager: %s", result.symbol, reason)
                     continue
 
-                if len(execution.list_active_trades()) == 1 and result.score < 8:
-                    continue
-                if not sessions.is_preferred_window():
+                if not session_policy.active:
                     LOGGER.info("Signal on %s skipped outside preferred trading sessions.", result.symbol)
+                    continue
+                if result.score < session_policy.min_execution_score:
+                    LOGGER.info(
+                        "Signal on %s skipped because score %s is below %s threshold for %s.",
+                        result.symbol,
+                        result.score,
+                        session_policy.min_execution_score,
+                        session_policy.session_name,
+                    )
                     continue
 
                 market = fetcher.testnet_exchange.market(fetcher._format_symbol(result.symbol))
@@ -135,7 +179,7 @@ async def run_bot() -> None:
                     score=trade.score,
                 )
 
-            await asyncio.sleep(config.scan_interval_seconds)
+            await asyncio.sleep(session_policy.scan_interval_seconds)
     except AuthenticationError as exc:
         LOGGER.error("Binance authentication failed: %s", exc)
         raise RuntimeError(
