@@ -120,13 +120,14 @@ If you see Binance `-2015 Invalid API-key, IP, or permissions for action`, verif
 1. Push this repository to GitHub.
 2. Create a new Railway project from the GitHub repo.
 3. Add the same environment variables from `.env.example` in Railway Variables.
-4. Set the start command:
+4. Railway can deploy this project with the included [Dockerfile](</C:/Users/DELL/OneDrive/Documents/New project/Dockerfile>).
+5. Set the start command only if you are not using Docker:
 
 ```bash
 python main.py
 ```
 
-5. Ensure the deployment uses Python 3.11 or newer.
+6. Ensure the deployment uses Python 3.11 or newer if using Railway's native Python builder.
 
 Optional `Procfile` content:
 
