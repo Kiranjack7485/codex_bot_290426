@@ -6,25 +6,34 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 
 
+class MarketType(str, Enum):
+    CRYPTO = "CRYPTO"
+
+
 class Direction(str, Enum):
     LONG = "LONG"
     SHORT = "SHORT"
 
 
-class SetupType(str, Enum):
+class CryptoSetup(str, Enum):
     LIQUIDITY_SWEEP_REVERSAL = "Liquidity Sweep Reversal"
     BREAK_AND_RETEST = "Break and Retest"
     TREND_PULLBACK = "Trend Pullback"
 
 
-@dataclass(slots=True)
+class CryptoSession(str, Enum):
+    INDIA_CRYPTO = "INDIA_CRYPTO"
+    OVERLAP = "US_LONDON_OVERLAP"
+
+
+@dataclass(frozen=True, slots=True)
 class LiquidityZone:
     label: str
     price: float
     kind: str
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class FairValueGap:
     direction: Direction
     lower: float
@@ -32,12 +41,12 @@ class FairValueGap:
     created_at: datetime
 
 
-@dataclass(slots=True)
-class SignalComponents:
-    liquidity_sweep: bool
-    market_structure_alignment: bool
-    ema_alignment: bool
-    volume_spike: bool
+@dataclass(frozen=True, slots=True)
+class CryptoSignalComponents:
+    liquidity_sweep: bool = False
+    market_structure_alignment: bool = False
+    ema_alignment: bool = False
+    volume_spike: bool = False
 
     @property
     def score(self) -> int:
@@ -49,52 +58,36 @@ class SignalComponents:
         return total
 
 
-@dataclass(slots=True)
-class TradeSignal:
+@dataclass(frozen=True, slots=True)
+class CryptoSignal:
+    market: MarketType
     symbol: str
     direction: Direction
-    setup: SetupType
-    entry: float
+    setup: CryptoSetup
+    entry_zone: tuple[float, float]
     stop_loss: float
     take_profit: float
     rr_ratio: float
     score: int
     confidence_score: int
     timestamp: datetime
-    components: SignalComponents
     liquidity_zone: LiquidityZone
     fair_value_gap: Optional[FairValueGap]
+    components: CryptoSignalComponents
     reasons: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(slots=True)
-class PositionPlan:
+@dataclass(frozen=True, slots=True)
+class ReversalAlert:
+    market: MarketType
     symbol: str
-    direction: Direction
-    entry: float
-    stop_loss: float
-    take_profit: float
-    quantity: float
-    leverage: int
-    notional_value: float
-    margin_required: float
-    risk_amount: float
-    rr_ratio: float
-    score: int
-    setup: SetupType
-    entry_order_type: str
+    previous_direction: Direction
+    new_direction: Direction
+    timestamp: datetime
+    reasons: List[str]
+    suggested_action: str
+    confidence_score: int
 
 
-@dataclass(slots=True)
-class ActiveTrade:
-    symbol: str
-    direction: Direction
-    quantity: float
-    entry_price: float
-    stop_loss: float
-    take_profit: float
-    score: int
-    setup: Optional[SetupType]
-    opened_at: datetime
-    order_ids: Dict[str, Any] = field(default_factory=dict)
+Signal = CryptoSignal

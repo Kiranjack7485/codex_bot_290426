@@ -7,202 +7,113 @@ from datetime import datetime
 from typing import Dict, Optional
 from zoneinfo import ZoneInfo
 
-from ccxt.base.errors import AuthenticationError
-
 from bot.config import AppConfig
-from bot.data_fetcher import BinanceFuturesDataFetcher
-from bot.execution_engine import ExecutionEngine
-from bot.models import TradeSignal
+from bot.crypto_scanner import CryptoScanner
+from bot.data_fetcher import CryptoMarketDataClient
+from bot.models import CryptoSession
 from bot.notifier import TelegramNotifier
-from bot.risk_manager import RiskManager
-from bot.strategy_engine import StrategyEngine
+from bot.reversal_engine import ReversalEngine
+from bot.strategy_engine import CryptoStrategyEngine
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-)
-LOGGER = logging.getLogger("bot.main")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+LOGGER = logging.getLogger("crypto_signal_bot.main")
 
 
 @dataclass(frozen=True, slots=True)
 class SessionPolicy:
-    session_name: str
-    active: bool
-    scan_interval_seconds: int
-    min_execution_score: int
-    min_notification_score: int
+    session: CryptoSession
+    label: str
+    poll_interval_seconds: int
+    min_alert_score: int
+    require_liquidity_sweep: bool
 
 
-class SessionManager:
+class SessionController:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
-        self.timezone = ZoneInfo(config.strategy.session_timezone)
-        self.states: Dict[str, bool] = {name: False for name in config.strategy.session_windows}
+        self.timezone = ZoneInfo(config.sessions.timezone)
+        self.states = {
+            CryptoSession.INDIA_CRYPTO: False,
+            CryptoSession.OVERLAP: False,
+        }
 
-    def evaluate(self) -> Dict[str, str]:
+    def evaluate(self) -> Dict[CryptoSession, str]:
         now = datetime.now(self.timezone).time()
-        events: Dict[str, str] = {}
-        for session_name, (start_text, end_text) in self.config.strategy.session_windows.items():
-            start = datetime.strptime(start_text, "%H:%M").time()
-            end = datetime.strptime(end_text, "%H:%M").time()
-            active = start <= now <= end
-            if active != self.states[session_name]:
-                events[session_name] = "started" if active else "ended"
-                self.states[session_name] = active
+        events: Dict[CryptoSession, str] = {}
+        india_active = datetime.strptime(self.config.sessions.india_crypto_start, "%H:%M").time() <= now <= datetime.strptime(self.config.sessions.india_crypto_end, "%H:%M").time()
+        overlap_active = datetime.strptime(self.config.sessions.overlap_start, "%H:%M").time() <= now <= datetime.strptime(self.config.sessions.overlap_end, "%H:%M").time()
+        for session, active in {
+            CryptoSession.INDIA_CRYPTO: india_active,
+            CryptoSession.OVERLAP: overlap_active,
+        }.items():
+            if active != self.states[session]:
+                self.states[session] = active
+                events[session] = "start" if active else "end"
         return events
 
-    def is_preferred_window(self) -> bool:
-        return any(self.states.values())
-
-    def current_policy(self) -> SessionPolicy:
-        if self.states.get("US/London Overlap", False):
+    def current_policy(self) -> Optional[SessionPolicy]:
+        if self.states[CryptoSession.OVERLAP]:
             return SessionPolicy(
-                session_name="US/London Overlap",
-                active=True,
-                scan_interval_seconds=self.config.strategy.us_london_scan_interval_seconds,
-                min_execution_score=self.config.strategy.us_london_min_score,
-                min_notification_score=self.config.strategy.super_strong_signal_score,
+                session=CryptoSession.OVERLAP,
+                label="US/London Overlap",
+                poll_interval_seconds=self.config.sessions.overlap_poll_interval_seconds,
+                min_alert_score=self.config.sessions.overlap_min_alert_score,
+                require_liquidity_sweep=False,
             )
-        if self.states.get("Indian Session", False):
+        if self.states[CryptoSession.INDIA_CRYPTO]:
             return SessionPolicy(
-                session_name="Indian Session",
-                active=True,
-                scan_interval_seconds=self.config.strategy.indian_session_scan_interval_seconds,
-                min_execution_score=self.config.strategy.indian_session_min_score,
-                min_notification_score=self.config.strategy.super_strong_signal_score,
+                session=CryptoSession.INDIA_CRYPTO,
+                label="Indian Market Hours Crypto Session",
+                poll_interval_seconds=self.config.sessions.india_crypto_poll_interval_seconds,
+                min_alert_score=self.config.sessions.india_crypto_min_alert_score,
+                require_liquidity_sweep=self.config.sessions.india_crypto_require_liquidity_sweep,
             )
-        return SessionPolicy(
-            session_name="Off Session",
-            active=False,
-            scan_interval_seconds=self.config.strategy.off_session_scan_interval_seconds,
-            min_execution_score=99,
-            min_notification_score=99,
-        )
-
-
-async def process_symbol(
-    symbol: str,
-    fetcher: BinanceFuturesDataFetcher,
-    strategy: StrategyEngine,
-) -> Optional[TradeSignal]:
-    primary, confirmation = await fetcher.fetch_symbol_context(symbol)
-    return strategy.evaluate_symbol(symbol, primary, confirmation)
+        return None
 
 
 async def run_bot() -> None:
     config = AppConfig.load()
-    fetcher = BinanceFuturesDataFetcher(config)
-    notifier = TelegramNotifier(config.telegram_bot_token, config.telegram_chat_id)
-    strategy = StrategyEngine(config.strategy)
-    risk = RiskManager(config.risk)
-    execution = ExecutionEngine(fetcher)
-    sessions = SessionManager(config)
+    notifier = TelegramNotifier(config.telegram)
+    crypto_client = CryptoMarketDataClient(config.binance_api_key, config.binance_secret)
+    crypto_strategy = CryptoStrategyEngine(config.crypto)
+    crypto_scanner = CryptoScanner(config.crypto, crypto_client, crypto_strategy)
+    reversal_engine = ReversalEngine(crypto_strategy)
+    session_controller = SessionController(config)
 
-    last_status_slot: Optional[int] = None
-    seen_signals: Dict[str, datetime] = {}
+    await crypto_client.initialize()
+    await notifier.bot_started()
 
     try:
-        await fetcher.initialize()
-        connection_results = await fetcher.validate_connections()
-        await execution.sync_exchange_positions()
-        balance = await fetcher.fetch_account_balance()
-        account = risk.parse_balance(balance)
-        active_trade_summary = execution.summarize_active_trades()
-        LOGGER.info("Active trades at startup: %s", active_trade_summary)
-        await notifier.send_startup(
-            account.free_usdt,
-            active_trade_summary,
-            connection_results.get("real", "unknown"),
-        )
-
         while True:
-            for session_name, event in sessions.evaluate().items():
-                await notifier.send_session_event(session_name, event)
-            session_policy = sessions.current_policy()
+            for session, event in session_controller.evaluate().items():
+                if event == "start":
+                    await notifier.session_started("Indian Market Hours Crypto Session" if session == CryptoSession.INDIA_CRYPTO else "US/London Overlap")
+                else:
+                    reversal_engine.clear_all()
+                    await notifier.session_ended("Indian Market Hours Crypto Session" if session == CryptoSession.INDIA_CRYPTO else "US/London Overlap")
 
-            balance = await fetcher.fetch_account_balance()
-            account = risk.parse_balance(balance)
+            policy = session_controller.current_policy()
+            if policy is None:
+                await asyncio.sleep(config.sessions.idle_sleep_seconds)
+                continue
 
-            now = datetime.now(ZoneInfo(config.strategy.session_timezone))
-            status_slot = now.hour * 2 + (1 if now.minute >= 30 else 0)
-            if last_status_slot != status_slot and now.minute in {0, 30}:
-                last_status_slot = status_slot
-                await notifier.send_scan_status(
-                    len(execution.list_active_trades()),
-                    account.free_usdt,
-                    execution.summarize_active_trades(),
-                )
-
-            signals = await asyncio.gather(
-                *(process_symbol(symbol, fetcher, strategy) for symbol in config.symbols),
-                return_exceptions=True,
-            )
-
-            for symbol, result in zip(config.symbols, signals):
+            results = await asyncio.gather(*(crypto_scanner.scan_symbol(symbol) for symbol in config.crypto.symbols), return_exceptions=True)
+            for symbol, result in zip(config.crypto.symbols, results):
                 if isinstance(result, Exception):
-                    LOGGER.error("Scan failed for %s: %s", symbol, result)
+                    LOGGER.error("Crypto scan failed for %s: %s", symbol, result)
                     continue
-                if result is None:
-                    continue
-
-                signal_key = f"{result.symbol}:{result.direction.value}:{result.setup.value}:{result.timestamp.isoformat()}"
-                if signal_key in seen_signals:
-                    continue
-                seen_signals[signal_key] = result.timestamp
-
-                if session_policy.active and result.score >= session_policy.min_notification_score:
-                    await notifier.send_strong_signal(result)
-
-                can_open, reason = risk.can_open_trade(result, account, execution.list_active_trades())
-                if not can_open:
-                    LOGGER.info(
-                        "Signal on %s rejected by risk manager: %s | active trades: %s",
-                        result.symbol,
-                        reason,
-                        execution.summarize_active_trades(),
-                    )
-                    continue
-
-                if not session_policy.active:
-                    LOGGER.info("Signal on %s skipped outside preferred trading sessions.", result.symbol)
-                    continue
-                if result.score < session_policy.min_execution_score:
-                    LOGGER.info(
-                        "Signal on %s skipped because score %s is below %s threshold for %s.",
-                        result.symbol,
-                        result.score,
-                        session_policy.min_execution_score,
-                        session_policy.session_name,
-                    )
-                    continue
-
-                market = fetcher.testnet_exchange.market(fetcher._format_symbol(result.symbol))
-                plan = risk.build_position_plan(result, account, config.risk.default_leverage, market_info=market)
-                await execution.execute_trade(plan)
-                await notifier.send_trade_executed(plan)
-
-            trade_updates = await execution.refresh_trade_state()
-            for update in trade_updates:
-                trade = update["trade"]
-                await notifier.send_trade_closed(
-                    symbol=trade.symbol,
-                    result=update["result"],
-                    entry=trade.entry_price,
-                    stop_loss=trade.stop_loss,
-                    take_profit=trade.take_profit,
-                    score=trade.score,
-                )
-
-            await asyncio.sleep(session_policy.scan_interval_seconds)
-    except AuthenticationError as exc:
-        LOGGER.error("Binance authentication failed: %s", exc)
-        raise RuntimeError(
-            "Binance authentication failed. Check whether the real and testnet API keys, secrets, "
-            "futures permissions, and testnet environment values in .env are correct."
-        ) from exc
+                signal, context = result
+                if signal is not None:
+                    if signal.score >= policy.min_alert_score and (not policy.require_liquidity_sweep or signal.components.liquidity_sweep):
+                        await notifier.strong_signal(signal)
+                        reversal_engine.track(signal)
+                reversal = reversal_engine.crypto_reversal(symbol, context["primary"])
+                if reversal is not None:
+                    await notifier.reversal_alert(reversal)
+            await asyncio.sleep(policy.poll_interval_seconds)
     finally:
-        await fetcher.close()
+        await crypto_client.close()
 
 
 if __name__ == "__main__":

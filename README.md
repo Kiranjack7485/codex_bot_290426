@@ -1,145 +1,110 @@
-# Crypto Scalping Bot - Phase 1
+# Crypto Scalp Signal Bot
 
-This project is a modular Python crypto scalping bot for Binance Futures that:
+This project is dedicated only to crypto scalp trading signals.
 
-- Connects to Binance Futures real and demo environments simultaneously
-- Scans `BTCUSDT`, `ETHUSDT`, `BNBUSDT`, `SOLUSDT`, `XRPUSDT`
-- Evaluates strict 5m primary and 15m confirmation logic
-- Executes trades only on Binance Futures demo trading
-- Sends Telegram alerts for strong signals, demo trades, TP, SL, startup, sessions, and 30-minute scan status
-- Adapts scanning intensity by session:
-  - Indian Session: half-hyper active
-  - US/London Overlap: hyper active
-  - Off-session: conservative scan pace with no trade execution
+It does not scan Indian stocks, Indian indices, options, or any non-crypto market.
+It does not execute trades.
+It only sends high-probability crypto scalp alerts to Telegram.
 
-## Strategy Rules Implemented
+## Sessions
 
-The bot enforces these conditions before execution:
+The bot scans crypto only during these IST windows:
 
-- Market structure must align on both `5m` and `15m`
-- Sideways structure returns `NO TRADE`
-- Liquidity zones include:
-  - Previous swing highs/lows
-  - Equal highs/lows
-  - Session highs/lows
-- Setup logic covers:
-  - Liquidity Sweep Reversal
-  - Break and Retest
-  - Trend Pullback
-- Fair Value Gap alignment is required for setups
-- Volume spike confirmation is required
-- EMA `9` and `21` must align with direction
-- Score must be at least `7`
-- Second concurrent trade is allowed only at score `>= 8`
+- Indian market hours crypto session: `09:15` to `10:30`
+  - extra care and confirmation
+  - stricter score threshold
+  - liquidity sweep can be required
+- US/London overlap: `18:30` to `22:30`
+  - primary high-probability crypto session
 
-## File Structure
+Outside these windows the bot stays idle and sends nothing.
 
-- [main.py](</C:/Users/DELL/OneDrive/Documents/New project/main.py>)
-- [bot/config.py](</C:/Users/DELL/OneDrive/Documents/New project/bot/config.py>)
-- [bot/data_fetcher.py](</C:/Users/DELL/OneDrive/Documents/New project/bot/data_fetcher.py>)
-- [bot/strategy_engine.py](</C:/Users/DELL/OneDrive/Documents/New project/bot/strategy_engine.py>)
-- [bot/risk_manager.py](</C:/Users/DELL/OneDrive/Documents/New project/bot/risk_manager.py>)
-- [bot/execution_engine.py](</C:/Users/DELL/OneDrive/Documents/New project/bot/execution_engine.py>)
-- [bot/notifier.py](</C:/Users/DELL/OneDrive/Documents/New project/bot/notifier.py>)
-- [bot/models.py](</C:/Users/DELL/OneDrive/Documents/New project/bot/models.py>)
-- [.env.example](</C:/Users/DELL/OneDrive/Documents/New project/.env.example>)
+## Strategy
+
+Symbols:
+
+- `BTCUSDT`
+- `ETHUSDT`
+- `BNBUSDT`
+- `SOLUSDT`
+- `XRPUSDT`
+
+Timeframes:
+
+- `5m`
+- `15m`
+
+Mandatory conditions:
+
+- Market structure: `HH/HL` or `LH/LL`
+- Liquidity sweep before entry
+- Fair Value Gap alignment
+- Volume spike confirmation
+- EMA `9` and `21` alignment
+
+Scoring:
+
+- Liquidity sweep: `+3`
+- Market structure: `+3`
+- EMA alignment: `+2`
+- Volume spike: `+2`
+
+Base signal floor:
+
+- `score >= 7`
+
+Session filtering:
+
+- Indian market hours session: stricter, default `score >= 9`
+- US/London overlap: strong, default `score >= 8`
+
+## Reversal Alerts
+
+After a signal is sent, the bot keeps watching that symbol and sends a reversal alert only when all are confirmed:
+
+- opposite structure formation
+- strong reversal candle
+- opposite-direction volume spike
+- EMA crossover against the prior direction
+
+## Project Layout
+
+- `main.py` - crypto-only session controller
+- `bot/config.py` - crypto and Telegram configuration
+- `bot/data_fetcher.py` - Binance futures market data client
+- `bot/crypto_scanner.py` - crypto scan orchestration
+- `bot/strategy_engine.py` - crypto strategy engine
+- `bot/reversal_engine.py` - confirmed reversal detection
+- `bot/notifier.py` - Telegram alerts
+- `bot/models.py` - crypto signal models
 
 ## Setup
 
-1. Create and activate a virtual environment.
-
 ```powershell
 python -m venv .venv
-.venv\Scripts\Activate.ps1
-```
-
-2. Install dependencies.
-
-```powershell
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+Copy-Item .env.example .env
 ```
 
-3. Create `.env` from `.env.example` and fill in:
+## Environment
+
+Required:
+
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
+
+Optional:
 
 - `BINANCE_API_KEY`
 - `BINANCE_SECRET`
-- `BINANCE_TESTNET_API_KEY`
-- `BINANCE_TESTNET_SECRET`
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_CHAT_ID`
-- Optional session controls:
-  - `BOT_REQUIRE_REAL_BALANCE_AUTH`
-  - `BOT_INDIAN_SESSION_SCAN_INTERVAL_SECONDS`
-  - `BOT_US_LONDON_SCAN_INTERVAL_SECONDS`
-  - `BOT_OFF_SESSION_SCAN_INTERVAL_SECONDS`
-  - `BOT_INDIAN_SESSION_MIN_SCORE`
-  - `BOT_US_LONDON_MIN_SCORE`
-  - `BOT_SUPER_STRONG_SIGNAL_SCORE`
 
-4. Start the bot.
+## Run
 
 ```powershell
 python main.py
 ```
 
-If you see `ModuleNotFoundError`, install dependencies first:
+## Deploy
 
-```powershell
-pip install -r requirements.txt
-```
-
-If you see Binance `-2015 Invalid API-key, IP, or permissions for action`, verify all of the following:
-
-- The real API key is a Binance Futures key with permission for futures account queries
-- The demo API key is created for Binance Futures demo trading, not on production Binance
-- `BINANCE_API_KEY` and `BINANCE_SECRET` belong to the same account
-- `BINANCE_TESTNET_API_KEY` and `BINANCE_TESTNET_SECRET` belong to the same demo account
-- Any IP restriction on the keys includes the machine running the bot
-- Legacy CCXT sandbox mode is no longer supported for Binance USD-M futures; this bot uses demo trading mode instead
-
-For cloud deployment platforms like Railway, keep `BOT_REQUIRE_REAL_BALANCE_AUTH=false` unless you specifically need authenticated mainnet account queries from the server. The bot only needs public mainnet market data for scanning, but demo credentials are still required for execution.
-
-## How It Runs
-
-- Real Binance Futures connection is used for market data scanning
-- Binance Futures demo-trading connection is used for balance, leverage, and order execution
-- Telegram notifications are limited to the required events only
-- The scanner runs asynchronously across all five symbols
-- Session behavior:
-  - Indian Session defaults to 30-second scans and requires score `>= 8` for execution
-  - US/London Overlap defaults to 15-second scans and requires score `>= 9` for execution
-  - Telegram signal alerts are sent only for super-strong signals, default score `>= 9`
-  - Off-session scans continue at a slower pace, but entries are skipped
-- Entry order logic:
-  - Liquidity Sweep Reversal: market order
-  - Break and Retest: limit order
-  - Trend Pullback: limit order
-- Trading is preferred only during these IST windows:
-  - `09:00` to `12:30`
-  - `18:30` to `22:30`
-
-## Railway Deployment
-
-1. Push this repository to GitHub.
-2. Create a new Railway project from the GitHub repo.
-3. Add the same environment variables from `.env.example` in Railway Variables.
-4. Railway can deploy this project with the included [Dockerfile](</C:/Users/DELL/OneDrive/Documents/New project/Dockerfile>).
-5. Set the start command only if you are not using Docker:
-
-```bash
-python main.py
-```
-
-6. Ensure the deployment uses Python 3.11 or newer if using Railway's native Python builder.
-
-Optional `Procfile` content:
-
-```text
-worker: python main.py
-```
-
-## Notes
-
-- Strategy tuning values are exposed through environment variables so the logic stays explicit.
-- Before live use, validate Binance demo-trading order type support for your account and region.
-- This code is Phase 1 infrastructure and should be forward-tested extensively before any production capital is considered.
+Use the included `Dockerfile` or deploy directly on Railway or a VPS with the required environment variables.

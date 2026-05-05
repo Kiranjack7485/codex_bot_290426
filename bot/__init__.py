@@ -1,1 +1,1 @@
-"""Phase 1 crypto scalping bot package."""
+"""NSE Opening Range Breakout options alert bot."""

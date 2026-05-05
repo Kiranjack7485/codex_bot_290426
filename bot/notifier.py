@@ -5,80 +5,54 @@ from typing import Optional
 
 from telegram import Bot
 
-from bot.models import PositionPlan, TradeSignal
+from bot.config import TelegramConfig
+from bot.models import CryptoSignal, ReversalAlert
 
 
 LOGGER = logging.getLogger(__name__)
 
 
 class TelegramNotifier:
-    def __init__(self, bot_token: str, chat_id: str) -> None:
-        self.bot = Bot(token=bot_token)
-        self.chat_id = chat_id
+    def __init__(self, config: TelegramConfig) -> None:
+        self.enabled = config.enabled
+        self.chat_id = config.chat_id
+        self.bot: Optional[Bot] = Bot(token=config.token) if self.enabled else None
 
     async def send(self, message: str) -> None:
+        LOGGER.info("ALERT: %s", message.replace("\n", " | "))
+        if not self.enabled or self.bot is None:
+            return
         try:
             await self.bot.send_message(chat_id=self.chat_id, text=message)
         except Exception as exc:  # pragma: no cover
             LOGGER.error("Telegram notification failed: %s", exc)
 
-    async def send_startup(self, capital: float, active_trade_summary: str, real_connection_mode: str) -> None:
+    async def bot_started(self) -> None:
+        await self.send("Bot started.\nMode: SIGNAL ONLY\nMarket: CRYPTO ONLY")
+
+    async def session_started(self, session_name: str) -> None:
+        await self.send(f"Session Started\nSession: {session_name}")
+
+    async def session_ended(self, session_name: str) -> None:
+        await self.send(f"Session Ended\nSession: {session_name}")
+
+    async def strong_signal(self, signal: CryptoSignal) -> None:
         await self.send(
-            "Bot started successfully.\n"
-            f"Binance Futures real connection: {real_connection_mode}.\n"
-            "Binance Futures demo login success.\n"
-            f"Available capital: {capital:.2f} USDT\n"
-            f"Active demo trades at startup: {active_trade_summary}"
-        )
-
-    async def send_scan_status(self, active_trades: int, capital: float, active_trade_summary: str) -> None:
-        await self.send(
-            "30-minute scan status.\n"
-            f"Active trades: {active_trades}\n"
-            f"Available capital: {capital:.2f} USDT\n"
-            f"Tracked trades: {active_trade_summary}"
-        )
-
-    async def send_session_event(self, session_name: str, event: str) -> None:
-        await self.send(f"{session_name} session {event}.")
-
-    async def send_strong_signal(self, signal: TradeSignal) -> None:
-        await self.send(self._format_signal("Strong signal detected", signal))
-
-    async def send_trade_executed(self, plan: PositionPlan) -> None:
-        await self.send(
-            "Demo trade executed.\n"
-            f"Pair: {plan.symbol}\n"
-            f"Direction: {plan.direction.value}\n"
-            f"Entry: {plan.entry:.6f}\n"
-            f"Stop Loss: {plan.stop_loss:.6f}\n"
-            f"Take Profit: {plan.take_profit:.6f}\n"
-            f"Risk/Reward: {plan.rr_ratio:.2f}\n"
-            f"Confidence score: {plan.score}\n"
-            f"Quantity: {plan.quantity:.6f}\n"
-            f"Leverage: {plan.leverage}x\n"
-            f"Entry order type: {plan.entry_order_type.upper()}"
-        )
-
-    async def send_trade_closed(self, symbol: str, result: str, entry: float, stop_loss: float, take_profit: float, score: int) -> None:
-        await self.send(
-            f"{result} hit.\n"
-            f"Pair: {symbol}\n"
-            f"Entry: {entry:.6f}\n"
-            f"Stop Loss: {stop_loss:.6f}\n"
-            f"Take Profit: {take_profit:.6f}\n"
-            f"Confidence score: {score}"
-        )
-
-    @staticmethod
-    def _format_signal(prefix: str, signal: TradeSignal) -> str:
-        return (
-            f"{prefix}.\n"
+            "Strong signal detected.\n"
             f"Pair: {signal.symbol}\n"
             f"Direction: {signal.direction.value}\n"
-            f"Entry: {signal.entry:.6f}\n"
+            f"Entry Zone: {signal.entry_zone[0]:.6f} - {signal.entry_zone[1]:.6f}\n"
             f"Stop Loss: {signal.stop_loss:.6f}\n"
             f"Take Profit: {signal.take_profit:.6f}\n"
             f"Risk/Reward: {signal.rr_ratio:.2f}\n"
-            f"Confidence score: {signal.confidence_score}"
+            f"Confidence Score: {signal.confidence_score}"
+        )
+
+    async def reversal_alert(self, alert: ReversalAlert) -> None:
+        await self.send(
+            "Possible Trend Reversal Detected.\n"
+            f"Pair: {alert.symbol}\n"
+            f"Previous Direction: {alert.previous_direction.value}\n"
+            f"Reason: {'; '.join(alert.reasons)}\n"
+            f"Suggested Action: {alert.suggested_action}"
         )
