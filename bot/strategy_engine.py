@@ -23,38 +23,58 @@ class CryptoStrategyEngine:
         self.config = config
         self.emitted: Set[str] = set()
 
-    def evaluate(self, symbol: str, primary: pd.DataFrame, confirmation: pd.DataFrame) -> Optional[CryptoSignal]:
-        primary = self._prepare_frame(primary.copy())
-        confirmation = self._prepare_frame(confirmation.copy())
-        if primary.empty or confirmation.empty:
+    def evaluate(
+        self,
+        symbol: str,
+        execution_fast: pd.DataFrame,
+        execution_slow: pd.DataFrame,
+        reference_mid: pd.DataFrame,
+        reference_high: pd.DataFrame,
+    ) -> Optional[CryptoSignal]:
+        execution_fast = self._prepare_frame(execution_fast.copy())
+        execution_slow = self._prepare_frame(execution_slow.copy())
+        reference_mid = self._prepare_frame(reference_mid.copy())
+        reference_high = self._prepare_frame(reference_high.copy())
+        if execution_fast.empty or execution_slow.empty or reference_mid.empty or reference_high.empty:
             return None
 
-        primary_structure = self._detect_market_structure(primary)
-        confirmation_structure = self._detect_market_structure(confirmation)
-        if primary_structure.bias is None or confirmation_structure.bias is None:
+        fast_structure = self._detect_market_structure(execution_fast)
+        slow_structure = self._detect_market_structure(execution_slow)
+        mid_structure = self._detect_market_structure(reference_mid)
+        high_structure = self._detect_market_structure(reference_high)
+        if None in {fast_structure.bias, slow_structure.bias, mid_structure.bias, high_structure.bias}:
             return None
-        if primary_structure.bias != confirmation_structure.bias:
-            return None
-
-        latest = primary.iloc[-1]
-        ema_direction = self._ema_direction(latest)
-        if ema_direction is None or ema_direction != primary_structure.bias:
+        if not (fast_structure.bias == slow_structure.bias == mid_structure.bias == high_structure.bias):
             return None
 
-        volume_spike = bool(latest["volume"] >= latest["volume_ma"] * self.config.volume_spike_factor)
+        latest_fast = execution_fast.iloc[-1]
+        latest_slow = execution_slow.iloc[-1]
+        fast_ema_direction = self._ema_direction(latest_fast)
+        slow_ema_direction = self._ema_direction(latest_slow)
+        mid_ema_direction = self._ema_direction(reference_mid.iloc[-1])
+        high_ema_direction = self._ema_direction(reference_high.iloc[-1])
+        if None in {fast_ema_direction, slow_ema_direction, mid_ema_direction, high_ema_direction}:
+            return None
+        if not (fast_ema_direction == slow_ema_direction == mid_ema_direction == high_ema_direction == fast_structure.bias):
+            return None
+
+        volume_spike = bool(
+            latest_fast["volume"] >= latest_fast["volume_ma"] * self.config.volume_spike_factor
+            and latest_slow["volume"] >= latest_slow["volume_ma"] * self.config.volume_spike_factor
+        )
         if not volume_spike:
             return None
 
-        liquidity_zones = self._build_liquidity_zones(primary, primary_structure)
+        liquidity_zones = self._build_liquidity_zones(execution_slow, slow_structure)
         if not liquidity_zones:
             return None
 
-        fvg = self._find_relevant_fvg(primary, primary_structure.bias, float(latest["close"]))
-        signal = self._detect_liquidity_sweep_reversal(symbol, primary, primary_structure, liquidity_zones, fvg, volume_spike, ema_direction)
+        fvg = self._find_relevant_fvg(execution_slow, slow_structure.bias, float(latest_slow["close"]))
+        signal = self._detect_liquidity_sweep_reversal(symbol, execution_slow, execution_fast, slow_structure, liquidity_zones, fvg, volume_spike, fast_ema_direction)
         if signal is None:
-            signal = self._detect_break_and_retest(symbol, primary, primary_structure, liquidity_zones, fvg, volume_spike, ema_direction)
+            signal = self._detect_break_and_retest(symbol, execution_slow, execution_fast, slow_structure, liquidity_zones, fvg, volume_spike, fast_ema_direction)
         if signal is None:
-            signal = self._detect_trend_pullback(symbol, primary, primary_structure, liquidity_zones, fvg, volume_spike, ema_direction)
+            signal = self._detect_trend_pullback(symbol, execution_slow, execution_fast, slow_structure, liquidity_zones, fvg, volume_spike, fast_ema_direction)
         if signal is None:
             return None
 
@@ -142,35 +162,38 @@ class CryptoStrategyEngine:
         aligned = [gap for gap in direction_gaps if gap.lower - tolerance <= current_price <= gap.upper + tolerance]
         return aligned[-1] if aligned else (direction_gaps[-1] if direction_gaps else None)
 
-    def _detect_liquidity_sweep_reversal(self, symbol: str, frame: pd.DataFrame, structure: StructureState, zones: List[LiquidityZone], fvg: Optional[FairValueGap], volume_spike: bool, ema_direction: Direction) -> Optional[CryptoSignal]:
-        latest = frame.iloc[-1]
-        previous = frame.iloc[-2]
+    def _detect_liquidity_sweep_reversal(self, symbol: str, signal_frame: pd.DataFrame, entry_frame: pd.DataFrame, structure: StructureState, zones: List[LiquidityZone], fvg: Optional[FairValueGap], volume_spike: bool, ema_direction: Direction) -> Optional[CryptoSignal]:
+        latest = signal_frame.iloc[-1]
+        previous = signal_frame.iloc[-2]
+        entry_latest = entry_frame.iloc[-1]
         for zone in zones:
             if structure.bias == Direction.LONG:
                 sweep = latest["low"] < zone.price and latest["close"] > zone.price and latest["close"] > latest["open"]
                 if sweep and fvg and fvg.direction == Direction.LONG:
-                    return self._build_signal(symbol, Direction.LONG, CryptoSetup.LIQUIDITY_SWEEP_REVERSAL, latest, zone, fvg, True, volume_spike, ema_direction, structure.bias, min(float(latest["low"]), float(previous["low"])), float(latest["close"]))
+                    return self._build_signal(symbol, Direction.LONG, CryptoSetup.LIQUIDITY_SWEEP_REVERSAL, latest, entry_latest, zone, fvg, True, volume_spike, ema_direction, structure.bias, min(float(latest["low"]), float(previous["low"])), float(latest["close"]))
             if structure.bias == Direction.SHORT:
                 sweep = latest["high"] > zone.price and latest["close"] < zone.price and latest["close"] < latest["open"]
                 if sweep and fvg and fvg.direction == Direction.SHORT:
-                    return self._build_signal(symbol, Direction.SHORT, CryptoSetup.LIQUIDITY_SWEEP_REVERSAL, latest, zone, fvg, True, volume_spike, ema_direction, structure.bias, float(latest["close"]), max(float(latest["high"]), float(previous["high"])))
+                    return self._build_signal(symbol, Direction.SHORT, CryptoSetup.LIQUIDITY_SWEEP_REVERSAL, latest, entry_latest, zone, fvg, True, volume_spike, ema_direction, structure.bias, float(latest["close"]), max(float(latest["high"]), float(previous["high"])))
         return None
 
-    def _detect_break_and_retest(self, symbol: str, frame: pd.DataFrame, structure: StructureState, zones: List[LiquidityZone], fvg: Optional[FairValueGap], volume_spike: bool, ema_direction: Direction) -> Optional[CryptoSignal]:
-        latest = frame.iloc[-1]
-        previous = frame.iloc[-2]
+    def _detect_break_and_retest(self, symbol: str, signal_frame: pd.DataFrame, entry_frame: pd.DataFrame, structure: StructureState, zones: List[LiquidityZone], fvg: Optional[FairValueGap], volume_spike: bool, ema_direction: Direction) -> Optional[CryptoSignal]:
+        latest = signal_frame.iloc[-1]
+        previous = signal_frame.iloc[-2]
+        entry_latest = entry_frame.iloc[-1]
         tolerance = float(latest["close"]) * (self.config.break_retest_tolerance_bps / 10_000)
         for zone in zones:
             if structure.bias == Direction.LONG:
                 if previous["close"] > zone.price and latest["low"] <= zone.price + tolerance and latest["close"] > zone.price and fvg and fvg.direction == Direction.LONG:
-                    return self._build_signal(symbol, Direction.LONG, CryptoSetup.BREAK_AND_RETEST, latest, zone, fvg, False, volume_spike, ema_direction, structure.bias, min(float(latest["low"]), zone.price), float(latest["close"]))
+                    return self._build_signal(symbol, Direction.LONG, CryptoSetup.BREAK_AND_RETEST, latest, entry_latest, zone, fvg, False, volume_spike, ema_direction, structure.bias, min(float(latest["low"]), zone.price), float(latest["close"]))
             if structure.bias == Direction.SHORT:
                 if previous["close"] < zone.price and latest["high"] >= zone.price - tolerance and latest["close"] < zone.price and fvg and fvg.direction == Direction.SHORT:
-                    return self._build_signal(symbol, Direction.SHORT, CryptoSetup.BREAK_AND_RETEST, latest, zone, fvg, False, volume_spike, ema_direction, structure.bias, float(latest["close"]), max(float(latest["high"]), zone.price))
+                    return self._build_signal(symbol, Direction.SHORT, CryptoSetup.BREAK_AND_RETEST, latest, entry_latest, zone, fvg, False, volume_spike, ema_direction, structure.bias, float(latest["close"]), max(float(latest["high"]), zone.price))
         return None
 
-    def _detect_trend_pullback(self, symbol: str, frame: pd.DataFrame, structure: StructureState, zones: List[LiquidityZone], fvg: Optional[FairValueGap], volume_spike: bool, ema_direction: Direction) -> Optional[CryptoSignal]:
-        latest = frame.iloc[-1]
+    def _detect_trend_pullback(self, symbol: str, signal_frame: pd.DataFrame, entry_frame: pd.DataFrame, structure: StructureState, zones: List[LiquidityZone], fvg: Optional[FairValueGap], volume_spike: bool, ema_direction: Direction) -> Optional[CryptoSignal]:
+        latest = signal_frame.iloc[-1]
+        entry_latest = entry_frame.iloc[-1]
         tolerance = float(latest["close"]) * (self.config.pullback_ema_tolerance_bps / 10_000)
         relevant_zone = self._nearest_zone(float(latest["close"]), zones, structure.bias)
         if relevant_zone is None or fvg is None or fvg.direction != structure.bias:
@@ -179,15 +202,15 @@ class CryptoStrategyEngine:
             touched_ema = latest["low"] <= latest["ema_9"] + tolerance or latest["low"] <= latest["ema_21"] + tolerance
             zone_respected = latest["low"] <= relevant_zone.price + tolerance and latest["close"] > relevant_zone.price
             if touched_ema and zone_respected:
-                return self._build_signal(symbol, Direction.LONG, CryptoSetup.TREND_PULLBACK, latest, relevant_zone, fvg, False, volume_spike, ema_direction, structure.bias, min(float(latest["low"]), float(latest["ema_21"])), float(latest["close"]))
+                return self._build_signal(symbol, Direction.LONG, CryptoSetup.TREND_PULLBACK, latest, entry_latest, relevant_zone, fvg, False, volume_spike, ema_direction, structure.bias, min(float(latest["low"]), float(latest["ema_21"])), float(latest["close"]))
         if structure.bias == Direction.SHORT:
             touched_ema = latest["high"] >= latest["ema_9"] - tolerance or latest["high"] >= latest["ema_21"] - tolerance
             zone_respected = latest["high"] >= relevant_zone.price - tolerance and latest["close"] < relevant_zone.price
             if touched_ema and zone_respected:
-                return self._build_signal(symbol, Direction.SHORT, CryptoSetup.TREND_PULLBACK, latest, relevant_zone, fvg, False, volume_spike, ema_direction, structure.bias, float(latest["close"]), max(float(latest["high"]), float(latest["ema_21"])))
+                return self._build_signal(symbol, Direction.SHORT, CryptoSetup.TREND_PULLBACK, latest, entry_latest, relevant_zone, fvg, False, volume_spike, ema_direction, structure.bias, float(latest["close"]), max(float(latest["high"]), float(latest["ema_21"])))
         return None
 
-    def _build_signal(self, symbol: str, direction: Direction, setup: CryptoSetup, latest: pd.Series, zone: LiquidityZone, fvg: Optional[FairValueGap], liquidity_sweep: bool, volume_spike: bool, ema_direction: Direction, structure_bias: Direction, anchor_low: float, anchor_high: float) -> Optional[CryptoSignal]:
+    def _build_signal(self, symbol: str, direction: Direction, setup: CryptoSetup, signal_latest: pd.Series, entry_latest: pd.Series, zone: LiquidityZone, fvg: Optional[FairValueGap], liquidity_sweep: bool, volume_spike: bool, ema_direction: Direction, structure_bias: Direction, anchor_low: float, anchor_high: float) -> Optional[CryptoSignal]:
         components = CryptoSignalComponents(
             liquidity_sweep=liquidity_sweep,
             market_structure_alignment=structure_bias == direction,
@@ -197,7 +220,7 @@ class CryptoStrategyEngine:
         score = components.score
         if score < self.config.min_signal_score:
             return None
-        entry = float(latest["close"])
+        entry = float(entry_latest["close"])
         if direction == Direction.LONG:
             stop_loss = anchor_low
             risk = entry - stop_loss
@@ -215,9 +238,9 @@ class CryptoStrategyEngine:
         reasons = [
             f"Setup: {setup.value}",
             f"Liquidity zone: {zone.label} at {zone.price:.6f}",
-            "Market structure aligned on 5m and 15m",
-            "EMA 9/21 aligned with direction",
-            "Volume spike confirmed",
+            "Market structure aligned on 1m, 3m, 15m, and 1h",
+            "EMA 9/21 aligned across execution and reference frames",
+            "Volume spike confirmed on 1m and 3m",
         ]
         if fvg:
             reasons.append(f"FVG aligned between {fvg.lower:.6f} and {fvg.upper:.6f}")
@@ -234,12 +257,18 @@ class CryptoStrategyEngine:
             rr_ratio=rr_ratio,
             score=score,
             confidence_score=score,
-            timestamp=latest["timestamp"].to_pydatetime(),
+            timestamp=entry_latest["timestamp"].to_pydatetime(),
             liquidity_zone=zone,
             fair_value_gap=fvg,
             components=components,
             reasons=reasons,
-            metadata={"ema_9": float(latest["ema_9"]), "ema_21": float(latest["ema_21"]), "volume_ma": float(latest["volume_ma"])},
+            metadata={
+                "signal_timeframe_close": float(signal_latest["close"]),
+                "entry_timeframe_close": float(entry_latest["close"]),
+                "ema_9": float(entry_latest["ema_9"]),
+                "ema_21": float(entry_latest["ema_21"]),
+                "volume_ma": float(entry_latest["volume_ma"]),
+            },
         )
 
     @staticmethod

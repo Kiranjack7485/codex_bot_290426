@@ -10,11 +10,11 @@ It only sends high-probability crypto scalp alerts to Telegram.
 
 The bot scans crypto only during these IST windows:
 
-- Indian market hours crypto session: `09:15` to `10:30`
+- Indian market hours crypto session: `09:15` to `15:30`
   - extra care and confirmation
   - stricter score threshold
   - liquidity sweep can be required
-- US/London overlap: `18:30` to `22:30`
+- US/London overlap: `18:00` to `23:30`
   - primary high-probability crypto session
 
 Outside these windows the bot stays idle and sends nothing.
@@ -31,8 +31,8 @@ Symbols:
 
 Timeframes:
 
-- `5m`
-- `15m`
+- execution frames: `1m` and `3m`
+- reference frames: `15m` and `1h`
 
 Mandatory conditions:
 

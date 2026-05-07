@@ -17,13 +17,26 @@ class CryptoScanner:
         self.strategy = strategy
 
     async def scan_symbol(self, symbol: str) -> tuple[Optional[CryptoSignal], Dict[str, pd.DataFrame]]:
-        primary, confirmation = await self._fetch_symbol_context(symbol)
-        signal = self.strategy.evaluate(symbol, primary, confirmation)
-        return signal, {"primary": primary, "confirmation": confirmation}
-
-    async def _fetch_symbol_context(self, symbol: str) -> tuple[pd.DataFrame, pd.DataFrame]:
-        primary, confirmation = await __import__("asyncio").gather(
-            self.data_client.fetch_ohlcv(symbol, self.config.primary_timeframe, self.config.ohlcv_limit),
-            self.data_client.fetch_ohlcv(symbol, self.config.confirmation_timeframe, self.config.ohlcv_limit),
+        frames = await self._fetch_symbol_context(symbol)
+        signal = self.strategy.evaluate(
+            symbol,
+            execution_fast=frames["execution_fast"],
+            execution_slow=frames["execution_slow"],
+            reference_mid=frames["reference_mid"],
+            reference_high=frames["reference_high"],
         )
-        return primary, confirmation
+        return signal, frames
+
+    async def _fetch_symbol_context(self, symbol: str) -> Dict[str, pd.DataFrame]:
+        execution_fast, execution_slow, reference_mid, reference_high = await __import__("asyncio").gather(
+            self.data_client.fetch_ohlcv(symbol, self.config.execution_timeframes[0], self.config.ohlcv_limit),
+            self.data_client.fetch_ohlcv(symbol, self.config.execution_timeframes[1], self.config.ohlcv_limit),
+            self.data_client.fetch_ohlcv(symbol, self.config.reference_timeframes[0], self.config.ohlcv_limit),
+            self.data_client.fetch_ohlcv(symbol, self.config.reference_timeframes[1], self.config.ohlcv_limit),
+        )
+        return {
+            "execution_fast": execution_fast,
+            "execution_slow": execution_slow,
+            "reference_mid": reference_mid,
+            "reference_high": reference_high,
+        }

@@ -108,7 +108,7 @@ async def run_bot() -> None:
                     if signal.score >= policy.min_alert_score and (not policy.require_liquidity_sweep or signal.components.liquidity_sweep):
                         await notifier.strong_signal(signal)
                         reversal_engine.track(signal)
-                reversal = reversal_engine.crypto_reversal(symbol, context["primary"])
+                reversal = reversal_engine.crypto_reversal(symbol, context["execution_fast"])
                 if reversal is not None:
                     await notifier.reversal_alert(reversal)
             await asyncio.sleep(policy.poll_interval_seconds)

@@ -36,8 +36,8 @@ class TelegramConfig:
 @dataclass(frozen=True, slots=True)
 class CryptoConfig:
     symbols: List[str] = field(default_factory=lambda: ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT"])
-    primary_timeframe: str = "5m"
-    confirmation_timeframe: str = "15m"
+    execution_timeframes: List[str] = field(default_factory=lambda: ["1m", "3m"])
+    reference_timeframes: List[str] = field(default_factory=lambda: ["15m", "1h"])
     ohlcv_limit: int = 300
     swing_lookback: int = 2
     structure_swings: int = 6
@@ -53,8 +53,8 @@ class CryptoConfig:
     def from_env(cls) -> "CryptoConfig":
         return cls(
             symbols=_get_list("CRYPTO_SYMBOLS", "BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT"),
-            primary_timeframe=os.getenv("CRYPTO_PRIMARY_TIMEFRAME", "5m"),
-            confirmation_timeframe=os.getenv("CRYPTO_CONFIRMATION_TIMEFRAME", "15m"),
+            execution_timeframes=_get_list("CRYPTO_EXECUTION_TIMEFRAMES", "1m,3m"),
+            reference_timeframes=_get_list("CRYPTO_REFERENCE_TIMEFRAMES", "15m,1h"),
             ohlcv_limit=int(os.getenv("CRYPTO_OHLCV_LIMIT", "300")),
             volume_ma_period=int(os.getenv("CRYPTO_VOLUME_MA_PERIOD", "20")),
             volume_spike_factor=float(os.getenv("CRYPTO_VOLUME_SPIKE_FACTOR", "1.5")),
@@ -72,9 +72,9 @@ class CryptoConfig:
 class SessionConfig:
     timezone: str = "Asia/Kolkata"
     india_crypto_start: str = "09:15"
-    india_crypto_end: str = "10:30"
-    overlap_start: str = "18:30"
-    overlap_end: str = "22:30"
+    india_crypto_end: str = "15:30"
+    overlap_start: str = "18:00"
+    overlap_end: str = "23:30"
     india_crypto_poll_interval_seconds: int = 30
     overlap_poll_interval_seconds: int = 15
     idle_sleep_seconds: int = 45
@@ -87,9 +87,9 @@ class SessionConfig:
         return cls(
             timezone=os.getenv("SESSION_TIMEZONE", "Asia/Kolkata"),
             india_crypto_start=os.getenv("INDIA_CRYPTO_SESSION_START", "09:15"),
-            india_crypto_end=os.getenv("INDIA_CRYPTO_SESSION_END", "10:30"),
-            overlap_start=os.getenv("OVERLAP_SESSION_START", "18:30"),
-            overlap_end=os.getenv("OVERLAP_SESSION_END", "22:30"),
+            india_crypto_end=os.getenv("INDIA_CRYPTO_SESSION_END", "15:30"),
+            overlap_start=os.getenv("OVERLAP_SESSION_START", "18:00"),
+            overlap_end=os.getenv("OVERLAP_SESSION_END", "23:30"),
             india_crypto_poll_interval_seconds=int(os.getenv("INDIA_CRYPTO_POLL_INTERVAL_SECONDS", "30")),
             overlap_poll_interval_seconds=int(os.getenv("OVERLAP_POLL_INTERVAL_SECONDS", "15")),
             idle_sleep_seconds=int(os.getenv("IDLE_SLEEP_SECONDS", "45")),
