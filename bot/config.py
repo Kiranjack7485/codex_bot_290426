@@ -19,6 +19,11 @@ def _get_list(name: str, default: str) -> List[str]:
     return [item.strip().upper() for item in value.split(",") if item.strip()]
 
 
+def _get_raw_list(name: str, default: str) -> List[str]:
+    value = os.getenv(name, default)
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 @dataclass(frozen=True, slots=True)
 class TelegramConfig:
     token: str
@@ -53,8 +58,8 @@ class CryptoConfig:
     def from_env(cls) -> "CryptoConfig":
         return cls(
             symbols=_get_list("CRYPTO_SYMBOLS", "BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT"),
-            execution_timeframes=_get_list("CRYPTO_EXECUTION_TIMEFRAMES", "1m,3m"),
-            reference_timeframes=_get_list("CRYPTO_REFERENCE_TIMEFRAMES", "15m,1h"),
+            execution_timeframes=_get_raw_list("CRYPTO_EXECUTION_TIMEFRAMES", "1m,3m"),
+            reference_timeframes=_get_raw_list("CRYPTO_REFERENCE_TIMEFRAMES", "15m,1h"),
             ohlcv_limit=int(os.getenv("CRYPTO_OHLCV_LIMIT", "300")),
             volume_ma_period=int(os.getenv("CRYPTO_VOLUME_MA_PERIOD", "20")),
             volume_spike_factor=float(os.getenv("CRYPTO_VOLUME_SPIKE_FACTOR", "1.5")),
